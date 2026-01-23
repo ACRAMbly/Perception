@@ -286,7 +286,7 @@ This is an academic project developed as part of the ACRAMbly Master Project. Co
 
 ### Development Team
 
-**Author**: [Your Name]  
+**Author**: [Ahtasham Ilyas]  
 **Institution**: University of Bremen  
 **Supervisors**: Prof. Michael Beetz, Jonas Dech, Tom Schierenbeck, Malte Huerkamp
 
@@ -308,7 +308,7 @@ If you use this work in your research, please cite:
 
 ```bibtex
 @mastersthesis{acramblyperc2025,
-  author = {Your Name},
+  author = {Ahtasham Ilyas},
   title = {Real-time 6DoF Pose Estimation for Robotic Assembly: ACRAMbly Perception Pipeline},
   school = {University of Bremen},
   year = {2025},

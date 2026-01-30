@@ -1,0 +1,9 @@
+Installation:
+	pip install -r requirements.txt
+
+Examples:
+	demo video: 
+		python3 -m opencv_camera_with_grounded_sam -i "demo.mp4" -e "checkpoints" -d "cfg/gdino" -m 0.3 -n 0.3 -y -s "mobile_sam.pt" -q 0.01 -p "red box" -b "gray"
+
+	webcame:
+		python3 -m opencv_camera_with_grounded_sam -e "checkpoints" -d "cfg/gdino" -m 0.1 -n 0.1 -y -s "mobile_sam.pt" -q 0.01 -p "objects" -b "gray"

@@ -1,3 +1,11 @@
 GroundedSAM_demo/checkpoints/
 GroundedSAM_demo/GroundedSAM_demo/checkpoints/
 GroundedSAM_demo/__pycache__
+weights/
+mycpp
+learning
+bundlesdf
+demo_data
+debug
+__pycache__
+venv/*

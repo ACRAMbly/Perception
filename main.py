@@ -280,6 +280,7 @@ class FoundationPoseROS2Node(Node):
     def rgb_callback(self, msg: Image):
         """Process RGB image from camera."""
         try:
+            self.color_image = None
             # Convert to RGB numpy array
             img = self.bridge.imgmsg_to_cv2(msg, desired_encoding='rgb8')
             img = np.asarray(img, dtype=np.uint8)
@@ -293,6 +294,7 @@ class FoundationPoseROS2Node(Node):
     def depth_callback(self, msg: Image):
         """Process depth image from camera and trigger processing."""
         try:
+            self.depth_image = None
             # Convert depth to float32 in meters
             depth = self.bridge.imgmsg_to_cv2(msg, desired_encoding='passthrough')
             

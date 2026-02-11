@@ -14,16 +14,6 @@
 
 The pipeline integrates:  **FoundationPose**,  **Grounded SAM**,  **ROS2 Jazzy**,  **Intel RealSense**
 
-## 🚀 Quick Start
-
-### Prerequisites
-
-- Ubuntu 24.04 (or compatible)
-- ROS2 Jazzy
-- CUDA-capable GPU (recommended: RTX 3090 or better)
-- Intel RealSense Camera (D435, D455, or similar)
-- Python 3.9+
-
 ### Installation
 
 Quick setup:

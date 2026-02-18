@@ -714,5 +714,4 @@ def main(args=None):
 
 if __name__ == '__main__':
     main()
-
-#python ./integration_test.py  --mesh_path demo_data/YCB_Video/models --mesh_obj_id 2 --prompt_text "Objects" --background gray --rgb_topic /tracy_camera/camera/camera/color/image_raw --depth_topic /tracy_camera/camera/camera/depth/image_rect_raw --camera_info_topic /tracy_camera/camera/camera/color/camera_info
+#python ./main.py  --mesh_path demo_data/models --mesh_obj_id 2 --prompt_text "Objects" --background gray --rgb_topic /tracy_camera/camera/camera/color/image_raw --depth_topic /tracy_camera/camera/camera/depth/image_rect_raw --camera_info_topic /tracy_camera/camera/camera/color/camera_info

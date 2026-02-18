@@ -9,3 +9,4 @@ demo_data
 debug
 __pycache__
 venv/*
+mycpp.cpython-*

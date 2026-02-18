@@ -27,6 +27,38 @@ pip install -r requirements.txt
 
 # Build extensions (required for first-time setup)
 bash build_all.sh
+
+## Additional Required Steps
+
+### 1. Fix Python C++ Extension Import (mycpp)
+After building, copy the compiled mycpp C++ extension to the project root so Python loads the correct module:
+
+```bash
+cp mycpp/build/mycpp.cpython-*.so ./
+```
+
+This ensures `import mycpp` loads the C++ extension, not the mycpp/ directory.
+
+### 2. Download FoundationPose Weights
+Download the official FoundationPose weights from the NVIDIA FoundationPose repository:
+
+- [2024-01-11-20-02-45 weights](https://github.com/NVlabs/FoundationPose/releases/download/v1.0/2024-01-11-20-02-45-20260204T133422Z-3-001.zip)
+- [2023-10-28-18-33-37 weights](https://github.com/NVlabs/FoundationPose/releases/download/v1.0/2023-10-28-18-33-37-20260204T133419Z-3-001.zip)
+
+Unzip these files and place the extracted folders inside the `weights/` directory:
+
+```bash
+unzip 2024-01-11-20-02-45-20260204T133422Z-3-001.zip -d weights/
+unzip 2023-10-28-18-33-37-20260204T133419Z-3-001.zip -d weights/
+```
+
+Your `weights/` directory should contain:
+
+```
+weights/
+  2024-01-11-20-02-45/
+  2023-10-28-18-33-37/
+```
 ```
 
 ### Running the Perception Pipeline

@@ -81,6 +81,9 @@ class FoundationPoseROS2Node(Node):
         self.depth_image = None
         self.camera_frame_id = "camera_color_optical_frame"
         self.latest_pose = None
+        # L1 bounding-box consistency: remembers the box from the previous frame
+        # so the tracker always stays on the spatially closest candidate.
+        self.last_bbox: Optional[torch.Tensor] = None
         
         # Synchronization
         self.color_received = False
@@ -331,38 +334,33 @@ class FoundationPoseROS2Node(Node):
         depth = self.depth_image.copy()
         #depth = cv2.resize(depth, (640, 480), interpolation=cv2.INTER_NEAREST)
         
-        # Run object detection with GroundedSAM
-        detections = self.grounded_sam.generate_masks(rgb_frame)
-        print(detections['masks'][0].shape)
+        # Run object detection with L1 bounding-box consistency.
+        # _get_consistent_mask() queries GroundedSAM with lowered thresholds to
+        # obtain many candidate boxes, then picks the one whose position is
+        # closest (L1 distance) to the box selected in the previous frame.
+        consistent_mask, consistent_score = self._get_consistent_mask(rgb_frame)
         masks = None
         masks_scores = None
-        
-        if detections:
-            masks_arr = detections["masks"].squeeze(1).cpu().numpy()
-            masks_scores = detections["masks_scores"].cpu().numpy()
-            
-            # Sort by confidence
-            sort_indices = np.argsort(-masks_scores)
-            masks_arr = masks_arr[sort_indices]
-            masks_scores = masks_scores[sort_indices]
-            
-            # Morphological cleanup
+
+        if consistent_mask is not None:
+            # Morphological cleanup on the L1-selected mask
             kernel = np.ones((3, 3), np.uint8)
-            cleaned_masks = []
-            for m in masks_arr:
-                m_u8 = (m.astype(np.uint8) * 255)
-                m_u8 = cv2.morphologyEx(m_u8, cv2.MORPH_OPEN, kernel)
-                m_u8 = cv2.morphologyEx(m_u8, cv2.MORPH_CLOSE, kernel)
-                cleaned_masks.append(m_u8.astype(bool))
-            
-            masks = np.array(cleaned_masks)
-            
-            self.get_logger().info(f"Frame {self.frame_count}: Detected {len(masks)} objects")
-            
-            # Debug: Save most confident mask
-            if self.debug >= 2 and masks.shape[0] > 0:
-                most_confident_mask = masks[0]
-                mask_img = (most_confident_mask * 255).astype(np.uint8)
+            m_u8 = (consistent_mask.astype(np.uint8) * 255)
+            m_u8 = cv2.morphologyEx(m_u8, cv2.MORPH_OPEN, kernel)
+            m_u8 = cv2.morphologyEx(m_u8, cv2.MORPH_CLOSE, kernel)
+            cleaned_mask = m_u8.astype(bool)
+
+            masks = np.array([cleaned_mask])
+            masks_scores = np.array([consistent_score])
+
+            self.get_logger().info(
+                f"Frame {self.frame_count}: L1-consistent detection "
+                f"(score={consistent_score:.3f})"
+            )
+
+            # Debug: save the selected mask
+            if self.debug >= 2:
+                mask_img = (cleaned_mask * 255).astype(np.uint8)
                 cv2.imwrite(
                     f'{self.debug_dir}/masks/frame_{self.frame_count:06d}_mask.png',
                     mask_img
@@ -453,6 +451,52 @@ class FoundationPoseROS2Node(Node):
         
         return frame
         
+    # ------------------------------------------------------------------
+    # L1 bounding-box consistency
+    # ------------------------------------------------------------------
+
+    def _get_consistent_mask(self, rgb_frame: np.ndarray):
+        """Return the mask for the temporally consistent detection.
+
+        GroundingDINO is queried with *lowered* thresholds (0.1 / 0.1) so that
+        it returns many candidate boxes even when the object is partially
+        occluded.  The winning box is then chosen by:
+
+        * **Frame 0** (or after a full detection loss): the box with the
+          highest SAM mask confidence – i.e. the default behaviour.
+        * **Frame N**: the box whose L1 distance to the *previous* frame's
+          winning box is smallest, preventing the tracker from jumping to a
+          visually similar but spatially distant object.
+
+        Returns:
+            (mask_bool_array, mask_score) – both are ``None`` when no
+            detections are found at all.
+        """
+        # Use the thresholds that were configured at startup.
+        detections = self.grounded_sam.generate_masks(rgb_frame)
+
+        if detections is None or detections["masks"].shape[0] == 0:
+            # No detections at all – reset memory so the next hit starts fresh.
+            self.last_bbox = None
+            return None, None
+
+        boxes = detections["boxes"]                              # [N, 4] xyxy
+        masks_arr = detections["masks"].squeeze(1).cpu().numpy()  # [N, H, W]
+        masks_scores = detections["masks_scores"].cpu().numpy()   # [N]
+
+        # ---- Frame 0: highest-confidence box ----
+        if self.last_bbox is None:
+            best_idx = int(np.argmax(masks_scores))
+            self.last_bbox = boxes[best_idx].detach()
+            return masks_arr[best_idx], float(masks_scores[best_idx])
+
+        # ---- Frame N: minimum L1 distance to previous box ----
+        last = self.last_bbox.to(boxes.device)
+        l1_distances = torch.abs(boxes - last).sum(dim=1)        # [N]
+        best_idx = int(torch.argmin(l1_distances).item())
+        self.last_bbox = boxes[best_idx].detach()
+        return masks_arr[best_idx], float(masks_scores[best_idx])
+
     def _estimate_pose(self, mask, depth, rgb):
         torch.cuda.set_device(0)
         self.est.to_device('cuda:0')
@@ -714,4 +758,4 @@ def main(args=None):
 
 if __name__ == '__main__':
     main()
-#python ./main.py  --mesh_path demo_data/models --mesh_obj_id 2 --prompt_text "Objects" --background gray --rgb_topic /tracy_camera/camera/camera/color/image_raw --depth_topic /tracy_camera/camera/camera/depth/image_rect_raw --camera_info_topic /tracy_camera/camera/camera/color/camera_info
+#python ./main.py  --mesh_path demo_data/models --mesh_obj_id 2 --prompt_text "Objects" --background gray --rgb_topic /tracy_camera/camera/camera/color/image_raw --depth_topic /tracy_camera/camera/camera/depth/image_rect_raw --camera_info_topic /tracy_camera/camera/camera/color/camera_info --box_threshold 0.1 --text_threshold 0.1

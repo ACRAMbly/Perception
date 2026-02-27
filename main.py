@@ -483,16 +483,20 @@ class FoundationPoseROS2Node(Node):
         boxes = detections["boxes"]                              # [N, 4] xyxy
         masks_arr = detections["masks"].squeeze(1).cpu().numpy()  # [N, H, W]
         masks_scores = detections["masks_scores"].cpu().numpy()   # [N]
+        self.get_logger().info(f"Found {boxes.shape[0]} candidate detections")
 
         # ---- Frame 0: highest-confidence box ----
         if self.last_bbox is None:
+            print("No previous box, picking the most confident detection")
             best_idx = int(np.argmax(masks_scores))
             self.last_bbox = boxes[best_idx].detach()
             return masks_arr[best_idx], float(masks_scores[best_idx])
 
         # ---- Frame N: minimum L1 distance to previous box ----
+        print("Selecting detection with minimum L1 distance to previous box")
         last = self.last_bbox.to(boxes.device)
         l1_distances = torch.abs(boxes - last).sum(dim=1)        # [N]
+        print(f"best L1 distance is {l1_distances.min().item():.3f}")      
         best_idx = int(torch.argmin(l1_distances).item())
         self.last_bbox = boxes[best_idx].detach()
         return masks_arr[best_idx], float(masks_scores[best_idx])

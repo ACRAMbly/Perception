@@ -81,6 +81,7 @@ class FoundationPoseROS2Node(Node):
         self.depth_image = None
         self.camera_frame_id = "camera_color_optical_frame"
         self.latest_pose = None
+        self.pose_estimation_count = 0  # Publish only on every 3rd successful estimate
         # L1 bounding-box consistency: remembers the box from the previous frame
         # so the tracker always stays on the spatially closest candidate.
         self.last_bbox: Optional[torch.Tensor] = None
@@ -395,15 +396,23 @@ class FoundationPoseROS2Node(Node):
                 
                 if pose is not None:
                     self.latest_pose = pose
-                    self.get_logger().info(f"Pose estimated successfully")
-                    
-                    # Publish pose as ROS message
-                    if self.publish_pose:
-                        self._publish_pose(pose)
-                    
-                    # Publish TF
-                    if self.publish_tf:
-                        self._publish_tf(pose)
+                    self.pose_estimation_count += 1
+                    self.get_logger().info(
+                        f"Pose estimated successfully "
+                        f"({self.pose_estimation_count}/3)"
+                    )
+
+                    if self.pose_estimation_count >= 3:
+                        # Publish pose as ROS message
+                        if self.publish_pose:
+                            self._publish_pose(pose)
+
+                        # Publish TF
+                        if self.publish_tf:
+                            self._publish_tf(pose)
+
+                        self.get_logger().info("Publishing pose (3rd consistent estimate)")
+                        self.pose_estimation_count = 0  # Reset counter
                         
             except Exception as e:
                 self.get_logger().error(f"Pose estimation failed: {e}")

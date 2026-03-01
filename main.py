@@ -12,6 +12,7 @@ import numpy as np
 import torch
 import trimesh
 import logging
+import time
 from typing import Optional
 import nvdiffrast.torch as dr
 
@@ -328,6 +329,10 @@ class FoundationPoseROS2Node(Node):
         
         self.frame_count += 1
         rgb_frame = self.color_image.copy()
+        
+        # Pre-process image
+        rgb_frame = self._preprocess_rgb(rgb_frame)
+        
         depth = self.depth_image.copy()
         #depth = cv2.resize(depth, (640, 480), interpolation=cv2.INTER_NEAREST)
         
@@ -426,7 +431,7 @@ class FoundationPoseROS2Node(Node):
             self.get_logger().error(f"Failed to publish visualization: {e}")
 
     # ------------------------------------------------------------------
-    # Pre-processing helpers (not yet wired into the main pipeline)
+    # Pre-processing helpers
     # ------------------------------------------------------------------
 
     def _apply_white_balance(self, img: np.ndarray) -> np.ndarray:
@@ -435,18 +440,26 @@ class FoundationPoseROS2Node(Node):
         Requires opencv-contrib-python:
             pip install opencv-contrib-python
         """
+        start_time = time.time()
         wb = cv2.xphoto.createGrayworldWB()
         wb.setSaturationThreshold(0.9)
-        return wb.balanceWhite(img)
+        result = wb.balanceWhite(img)
+        end_time = time.time()
+        self.get_logger().info(f"[_apply_white_balance] Inference Time: {(end_time - start_time) * 1000:.2f} ms")
+        return result
 
     def _apply_gamma_correction(self, img: np.ndarray, gamma: float = 1.2) -> np.ndarray:
         """Brighten mid-tones via a pre-computed Look-Up Table (O(1) per pixel)."""
+        start_time = time.time()
         inv_gamma = 1.0 / gamma
         table = np.array(
             [((i / 255.0) ** inv_gamma) * 255 for i in np.arange(0, 256)],
             dtype=np.uint8
         )
-        return cv2.LUT(img, table)
+        result = cv2.LUT(img, table)
+        end_time = time.time()
+        self.get_logger().info(f"[_apply_gamma_correction] Inference Time: {(end_time - start_time) * 1000:.2f} ms")
+        return result
 
     def _apply_clahe(self, img: np.ndarray) -> np.ndarray:
         """Sharpen local contrast with CLAHE applied only to the L channel (LAB).
@@ -454,21 +467,28 @@ class FoundationPoseROS2Node(Node):
         Operating in LAB space ensures colour hues are untouched while the
         luminance channel is adaptively equalised.
         """
+        start_time = time.time()
         lab = cv2.cvtColor(img, cv2.COLOR_RGB2LAB)
         l, a, b = cv2.split(lab)
         clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
         l_enhanced = clahe.apply(l)
         enhanced_lab = cv2.merge((l_enhanced, a, b))
-        return cv2.cvtColor(enhanced_lab, cv2.COLOR_LAB2RGB)
+        result = cv2.cvtColor(enhanced_lab, cv2.COLOR_LAB2RGB)
+        end_time = time.time()
+        self.get_logger().info(f"[_apply_clahe] Inference Time: {(end_time - start_time) * 1000:.2f} ms")
+        return result
 
     def _preprocess_rgb(self, frame: np.ndarray) -> np.ndarray:
         """Full pre-processing pipeline: white balance → gamma → CLAHE.
 
         Not yet called from process_frame – integrate when ready.
         """
+        start_time = time.time()
         step1 = self._apply_white_balance(frame)
         step2 = self._apply_gamma_correction(step1, gamma=1.2)
         step3 = self._apply_clahe(step2)
+        end_time = time.time()
+        self.get_logger().info(f"[_preprocess_rgb] Total Inference Time: {(end_time - start_time) * 1000:.2f} ms")
         return step3
 
     def _create_visualization_background(self, rgb_frame, masks, masks_scores):

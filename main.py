@@ -483,12 +483,16 @@ class FoundationPoseROS2Node(Node):
 
         Not yet called from process_frame – integrate when ready.
         """
-        start_time = time.time()
-        step1 = self._apply_white_balance(frame)
-        step2 = self._apply_gamma_correction(step1, gamma=1.2)
-        step3 = self._apply_clahe(step2)
-        end_time = time.time()
-        self.get_logger().info(f"[_preprocess_rgb] Total Inference Time: {(end_time - start_time) * 1000:.2f} ms")
+        try:
+            start_time = time.time()
+            step1 = self._apply_white_balance(frame)
+            step2 = self._apply_gamma_correction(step1, gamma=1.2)
+            step3 = self._apply_clahe(step2)
+            end_time = time.time()
+            self.get_logger().info(f"[_preprocess_rgb] Total Inference Time: {(end_time - start_time) * 1000:.2f} ms")
+        except Exception as e:
+            self.get_logger().error(f"Pre-processing failed: {e}")
+            return frame  # Return original frame on failure
         return step3
 
     def _create_visualization_background(self, rgb_frame, masks, masks_scores):

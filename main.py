@@ -83,8 +83,8 @@ class FoundationPoseROS2Node(Node):
         self.camera_frame_id = "camera_color_optical_frame"
         self.latest_pose = None
         self.pose_estimation_count = 0  # Publish only on every 3rd successful estimate
-        # L1 bounding-box consistency: remembers the box from the previous frame
-        # so the tracker always stays on the spatially closest candidate.
+        # DIoU bounding-box consistency: remembers the box from the previous frame
+        # so the tracker always picks the spatially and geometrically closest candidate.
         self.last_bbox: Optional[torch.Tensor] = None
         
         # Synchronization
@@ -336,16 +336,15 @@ class FoundationPoseROS2Node(Node):
         depth = self.depth_image.copy()
         #depth = cv2.resize(depth, (640, 480), interpolation=cv2.INTER_NEAREST)
         
-        # Run object detection with L1 bounding-box consistency.
-        # _get_consistent_mask() queries GroundedSAM with lowered thresholds to
-        # obtain many candidate boxes, then picks the one whose position is
-        # closest (L1 distance) to the box selected in the previous frame.
+        # Run object detection with DIoU bounding-box consistency.
+        # _get_consistent_mask() queries GroundedSAM to obtain candidate boxes,
+        # then picks the one with the highest DIoU to the box selected in the previous frame.
         consistent_mask, consistent_score = self._get_consistent_mask(rgb_frame)
         masks = None
         masks_scores = None
 
         if consistent_mask is not None:
-            # Morphological cleanup on the L1-selected mask
+            # Morphological cleanup on the DIoU-selected mask
             kernel = np.ones((3, 3), np.uint8)
             m_u8 = (consistent_mask.astype(np.uint8) * 255)
             m_u8 = cv2.morphologyEx(m_u8, cv2.MORPH_OPEN, kernel)
@@ -356,7 +355,7 @@ class FoundationPoseROS2Node(Node):
             masks_scores = np.array([consistent_score])
 
             self.get_logger().info(
-                f"Frame {self.frame_count}: L1-consistent detection "
+                f"Frame {self.frame_count}: DIoU-consistent detection "
                 f"(score={consistent_score:.3f})"
             )
 

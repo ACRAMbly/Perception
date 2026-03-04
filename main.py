@@ -84,9 +84,11 @@ class FoundationPoseROS2Node(Node):
         self.camera_frame_id = "camera_color_optical_frame"
         self.latest_pose = None
         self.pose_estimation_count = 0  # Publish only on every 3rd successful estimate
-        # DIoU bounding-box consistency: remembers the box from the previous frame
-        # so the tracker always picks the spatially and geometrically closest candidate.
+        # DIoU + appearance bounding-box consistency: remembers the box and
+        # color histogram from the previous frame so the tracker picks the
+        # candidate that is both spatially and visually closest.
         self.last_bbox: Optional[torch.Tensor] = None
+        self.last_appearance: Optional[np.ndarray] = None
         
         # Synchronization
         self.color_received = False
@@ -541,17 +543,15 @@ class FoundationPoseROS2Node(Node):
         returns candidate boxes even when the object is partially occluded.
         The winning box is chosen by:
 
-        * **Frame 0** (or after a full detection loss): the box with the
-          highest SAM mask confidence – i.e. the default behaviour.
-        * **Frame N**: the box that maximises DIoU with the previous frame's
-          winning box, penalising both poor overlap *and* large centre
-          displacement in a single metric.
+        * **Frame 0**: the box with the highest SAM mask confidence.
+        * **Frame N**: the box that maximises a combined score of DIoU
+          (spatial consistency) and Mask Color Histogram Similarity
+          (appearance consistency).
 
         Returns:
             (mask_bool_array, mask_score) – both are ``None`` when no
             detections are found at all.
         """
-        # Use the thresholds that were configured at startup.
         detections = self.grounded_sam.generate_masks(rgb_frame)
 
         if detections is None or detections["masks"].shape[0] == 0:
@@ -566,9 +566,12 @@ class FoundationPoseROS2Node(Node):
                 x2, y2 = min(w - 1, x2), min(h - 1, y2)
                 fallback_mask = np.zeros((h, w), dtype=bool)
                 fallback_mask[y1:y2, x1:x2] = True
+                # Do NOT clear last_appearance – remember what the object looked
+                # like before occlusion so matching resumes correctly.
                 return fallback_mask, 0.0
             # No detections and no prior box – reset memory so the next hit starts fresh.
             self.last_bbox = None
+            self.last_appearance = None
             return None, None
 
         boxes = detections["boxes"]                              # [N, 4] xyxy
@@ -577,21 +580,59 @@ class FoundationPoseROS2Node(Node):
         self.get_logger().info(f"Found {boxes.shape[0]} candidate detections")
 
         # ---- Frame 0: highest-confidence box ----
-        if self.last_bbox is None:
-            print("No previous box, picking the most confident detection")
+        if self.last_bbox is None or self.last_appearance is None:
+            print("No previous tracking data, picking the most confident detection")
             best_idx = int(np.argmax(masks_scores))
             self.last_bbox = boxes[best_idx].detach()
+            self.last_appearance = self._get_appearance(rgb_frame, masks_arr[best_idx])
             return masks_arr[best_idx], float(masks_scores[best_idx])
 
-        # ---- Frame N: maximum DIoU to previous box ----
-        print("Selecting detection with maximum DIoU to previous box")
-        last = self.last_bbox.to(boxes.device)
-        # distance_box_iou returns an [N, 1] matrix; squeeze to [N]
-        diou_scores = distance_box_iou(boxes, last.unsqueeze(0)).squeeze(1)  # [N]
-        print(f"best DIoU is {diou_scores.max().item():.3f}")
-        best_idx = int(torch.argmax(diou_scores).item())
+        # ---- Frame N: combine DIoU and Appearance Similarity ----
+        print("Selecting detection combining DIoU and Appearance metrics")
+
+        # 1. Spatial metric (DIoU)
+        last_box = self.last_bbox.to(boxes.device)
+        diou_scores = distance_box_iou(boxes, last_box.unsqueeze(0)).squeeze(1).cpu().numpy()  # [N]
+
+        # 2. Appearance metric (cosine similarity of colour histograms)
+        app_scores = np.zeros(len(boxes), dtype=np.float32)
+        for i in range(len(boxes)):
+            cand_app = self._get_appearance(rgb_frame, masks_arr[i])
+            app_scores[i] = np.dot(cand_app, self.last_appearance)  # dot of unit vecs == cosine sim
+
+        # 3. Combine scores (DIoU ∈ [-1, 1], appearance ∈ [0, 1])
+        total_scores = (0.5 * diou_scores) + (0.5 * app_scores)
+
+        print(f"Best DIoU: {diou_scores.max():.3f} | Best App: {app_scores.max():.3f}")
+
+        best_idx = int(np.argmax(total_scores))
+
+        # 4. Update memory for the next frame
         self.last_bbox = boxes[best_idx].detach()
+        self.last_appearance = self._get_appearance(rgb_frame, masks_arr[best_idx])
+
         return masks_arr[best_idx], float(masks_scores[best_idx])
+
+    def _get_appearance(self, rgb_frame: np.ndarray, mask: np.ndarray) -> np.ndarray:
+        """Extract a normalized RGB colour histogram from the masked region.
+
+        Returns a unit-norm float32 vector of length 24 (8 bins × 3 channels)
+        suitable for cosine similarity comparisons.
+        """
+        pixels = rgb_frame[mask]  # [num_pixels, 3]
+        if pixels.shape[0] == 0:
+            return np.zeros(24, dtype=np.float32)
+
+        hist = []
+        for c in range(3):
+            h, _ = np.histogram(pixels[:, c], bins=8, range=(0, 256))
+            hist.append(h)
+
+        hist = np.concatenate(hist).astype(np.float32)
+        norm = np.linalg.norm(hist)
+        if norm > 0:
+            hist /= norm
+        return hist
 
     def _estimate_pose(self, mask, depth, rgb):
         torch.cuda.set_device(0)

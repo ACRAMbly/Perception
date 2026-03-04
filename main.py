@@ -10,6 +10,7 @@ import distinctipy
 import os
 import numpy as np
 import torch
+from torchvision.ops import distance_box_iou
 import trimesh
 import logging
 from typing import Optional
@@ -461,21 +462,21 @@ class FoundationPoseROS2Node(Node):
         return frame
         
     # ------------------------------------------------------------------
-    # L1 bounding-box consistency
+    # DIoU bounding-box consistency
     # ------------------------------------------------------------------
 
     def _get_consistent_mask(self, rgb_frame: np.ndarray):
         """Return the mask for the temporally consistent detection.
 
-        GroundingDINO is queried with *lowered* thresholds (0.1 / 0.1) so that
-        it returns many candidate boxes even when the object is partially
-        occluded.  The winning box is then chosen by:
+        GroundingDINO is queried with the configured thresholds so that it
+        returns candidate boxes even when the object is partially occluded.
+        The winning box is chosen by:
 
         * **Frame 0** (or after a full detection loss): the box with the
           highest SAM mask confidence – i.e. the default behaviour.
-        * **Frame N**: the box whose L1 distance to the *previous* frame's
-          winning box is smallest, preventing the tracker from jumping to a
-          visually similar but spatially distant object.
+        * **Frame N**: the box that maximises DIoU with the previous frame's
+          winning box, penalising both poor overlap *and* large centre
+          displacement in a single metric.
 
         Returns:
             (mask_bool_array, mask_score) – both are ``None`` when no
@@ -513,12 +514,13 @@ class FoundationPoseROS2Node(Node):
             self.last_bbox = boxes[best_idx].detach()
             return masks_arr[best_idx], float(masks_scores[best_idx])
 
-        # ---- Frame N: minimum L1 distance to previous box ----
-        print("Selecting detection with minimum L1 distance to previous box")
+        # ---- Frame N: maximum DIoU to previous box ----
+        print("Selecting detection with maximum DIoU to previous box")
         last = self.last_bbox.to(boxes.device)
-        l1_distances = torch.abs(boxes - last).sum(dim=1)        # [N]
-        print(f"best L1 distance is {l1_distances.min().item():.3f}")      
-        best_idx = int(torch.argmin(l1_distances).item())
+        # distance_box_iou returns an [N, 1] matrix; squeeze to [N]
+        diou_scores = distance_box_iou(boxes, last.unsqueeze(0)).squeeze(1)  # [N]
+        print(f"best DIoU is {diou_scores.max().item():.3f}")
+        best_idx = int(torch.argmax(diou_scores).item())
         self.last_bbox = boxes[best_idx].detach()
         return masks_arr[best_idx], float(masks_scores[best_idx])
 

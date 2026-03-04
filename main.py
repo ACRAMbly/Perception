@@ -485,7 +485,19 @@ class FoundationPoseROS2Node(Node):
         detections = self.grounded_sam.generate_masks(rgb_frame)
 
         if detections is None or detections["masks"].shape[0] == 0:
-            # No detections at all – reset memory so the next hit starts fresh.
+            # Object occluded – fall back to last known bounding box if available.
+            if self.last_bbox is not None:
+                self.get_logger().warn(
+                    "No detections found – using last known bounding box as fallback mask."
+                )
+                h, w = rgb_frame.shape[:2]
+                x1, y1, x2, y2 = self.last_bbox.cpu().numpy().astype(int)
+                x1, y1 = max(0, x1), max(0, y1)
+                x2, y2 = min(w - 1, x2), min(h - 1, y2)
+                fallback_mask = np.zeros((h, w), dtype=bool)
+                fallback_mask[y1:y2, x1:x2] = True
+                return fallback_mask, 0.0
+            # No detections and no prior box – reset memory so the next hit starts fresh.
             self.last_bbox = None
             return None, None
 

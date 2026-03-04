@@ -442,7 +442,7 @@ class FoundationPoseROS2Node(Node):
         """
         start_time = time.time()
         wb = cv2.xphoto.createGrayworldWB()
-        wb.setSaturationThreshold(0.9)
+        wb.setSaturationThreshold(0.4)
         result = wb.balanceWhite(img)
         end_time = time.time()
         self.get_logger().info(f"[_apply_white_balance] Inference Time: {(end_time - start_time) * 1000:.2f} ms")
@@ -486,7 +486,7 @@ class FoundationPoseROS2Node(Node):
         try:
             start_time = time.time()
             step1 = self._apply_white_balance(frame)
-            step2 = self._apply_gamma_correction(step1, gamma=1.2)
+            step2 = self._apply_gamma_correction(step1, gamma=0.8)
             step3 = self._apply_clahe(step2)
             end_time = time.time()
             self.get_logger().info(f"[_preprocess_rgb] Total Inference Time: {(end_time - start_time) * 1000:.2f} ms")

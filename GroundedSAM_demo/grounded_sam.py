@@ -520,7 +520,7 @@ class GroundedSAM:
             image = self.preprocess_resize(image)  # H' x W' x 3
 
         # generate bounding boxes from prompt text
-        bboxes_xyxy, bboxes_confs, _ = self.ground_dino.predict(image, self.prompt_text)  # B x 4 (as xyxy), B
+        bboxes_xyxy, bboxes_confs, phrases = self.ground_dino.predict(image, self.prompt_text)  # B x 4 (as xyxy), B, B
 
         #print("Found boxes: {}".format(bboxes_xyxy))
 
@@ -536,8 +536,9 @@ class GroundedSAM:
 
         boxes = bboxes_xyxy[indices]  # B' x 4
         bboxes_confs = bboxes_confs[indices]  # B'
+        kept_phrases = [phrases[i] for i in indices.tolist()]  # B'
 
-        detections = {"boxes": boxes, "boxes_scores": bboxes_confs, "masks": masks, "masks_scores": masks_confs, "indexes": indices}
+        detections = {"boxes": boxes, "boxes_scores": bboxes_confs, "masks": masks, "masks_scores": masks_confs, "indexes": indices, "phrases": kept_phrases}
 
         if self.segmentor_width_size:
             detections = self.postprocess_resize(detections, orig_size)  # {..., "masks": B' x H x W, ...}

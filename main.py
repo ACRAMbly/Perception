@@ -333,18 +333,21 @@ class FoundationPoseROS2Node(Node):
         
         # Run object detection with GroundedSAM
         detections = self.grounded_sam.generate_masks(rgb_frame)
-        print(detections['masks'][0].shape)
         masks = None
         masks_scores = None
         
         if detections:
             masks_arr = detections["masks"].squeeze(1).cpu().numpy()
             masks_scores = detections["masks_scores"].cpu().numpy()
+            boxes_scores = detections["boxes_scores"].cpu().numpy()
             
-            # Sort by confidence
-            sort_indices = np.argsort(-masks_scores)
+            # Sort by GroundingDINO text-match score (boxes_scores), NOT SAM mask
+            # quality (masks_scores). boxes_scores reflects how well each detection
+            # matched the prompt (e.g. "yellow cube"), so rank #0 is the target.
+            sort_indices = np.argsort(-boxes_scores)
             masks_arr = masks_arr[sort_indices]
             masks_scores = masks_scores[sort_indices]
+            boxes_scores = boxes_scores[sort_indices]
             
             # Morphological cleanup
             kernel = np.ones((3, 3), np.uint8)
@@ -357,7 +360,11 @@ class FoundationPoseROS2Node(Node):
             
             masks = np.array(cleaned_masks)
             
-            self.get_logger().info(f"Frame {self.frame_count}: Detected {len(masks)} objects")
+            phrases = detections.get("phrases", [])
+            self.get_logger().info(
+                f"Frame {self.frame_count}: Detected {len(masks)} objects "
+                f"| phrases={phrases} | boxes_scores={boxes_scores.tolist()}"
+            )
             
             # Debug: Save most confident mask
             if self.debug >= 2 and masks.shape[0] > 0:

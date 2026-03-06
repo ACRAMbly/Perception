@@ -189,7 +189,7 @@ def main(args=None):
     parser.add_argument(
         "--topic",
         type=str,
-        default="/camera/camera/color/image_raw",
+        default="/tracy_camera/camera/camera/color/image_raw",
         help="RGB image topic to subscribe to",
     )
     parser.add_argument(

@@ -14,6 +14,8 @@
 
 The pipeline integrates:  **FoundationPose**,  **Grounded SAM**,  **ROS2 Jazzy**,  **Intel RealSense**
 
+**Find the implementation of the different experiments we made to improve the pipeline in their specific branches**
+
 ### Installation
 
 Quick setup:
